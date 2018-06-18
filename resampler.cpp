@@ -7,13 +7,13 @@
 // March 9, 2002: Kaiser filter grabbed from Jonathan Blow's GD magazine mipmap sample code.
 // Sept. 8, 2002: Comments cleaned up a bit.
 // Dec. 31, 2008: v2.2: Bit more cleanup, released as public domain.
-// June 4, 2012: v2.21: Switched to unlicense.org, integrated GCC fixes supplied by Peter Nagy <petern@crytek.com>, Anteru at anteru.net, and clay@coge.net, 
+// June 4, 2012: v2.21: Switched to unlicense.org, integrated GCC fixes supplied by Peter Nagy <petern@crytek.com>, Anteru at anteru.net, and clay@coge.net,
 // added Codeblocks project (for testing with MinGW and GCC), VS2008 static code analysis pass.
-#include <stdlib.h>
-#include <math.h>
-#include <float.h>
-#include <assert.h>
-#include <string.h>
+#include <cstdlib>
+#include <cmath>
+#include <cfloat>
+#include <cassert>
+#include <cstring>
 #include "resampler.h"
 
 #define resampler_assert assert
@@ -40,14 +40,16 @@ static inline int resampler_range_check(int v, int h) { (void)h; resampler_asser
 
 #define M_PI 3.14159265358979323846
 
+#define RR(value) Resampler::RR(value)
+
 // Float to int cast with truncation.
-static inline int cast_to_int(Resample_Real i)
+static constexpr int cast_to_int(Resample_Real i)
 {
    return (int)i;
 }
 
 // (x mod y) with special handling for negative x values.
-static inline int posmod(int x, int y)
+static constexpr int posmod(int x, int y)
 {
    if (x >= 0)
       return (x % y);
@@ -66,99 +68,97 @@ static inline int posmod(int x, int y)
 // There is no need to make the filter function particularly fast, because it's
 // only called during initializing to create the X and Y axis contributor tables.
 
-#define BOX_FILTER_SUPPORT (0.5f)
-static Resample_Real box_filter(Resample_Real t)    /* pulse/Fourier window */
+#define BOX_FILTER_SUPPORT RR(0.5)
+static constexpr Resample_Real box_filter(Resample_Real t)    /* pulse/Fourier window */
 {
    // make_clist() calls the filter function with t inverted (pos = left, neg = right)
-   if ((t >= -0.5f) && (t < 0.5f))
-      return 1.0f;
+   if ((t >= RR(-0.5)) && (t < RR(0.5)))
+      return RR(1.0);
    else
-      return 0.0f;
+      return RR(0.0);
 }
 
-#define TENT_FILTER_SUPPORT (1.0f)
-static Resample_Real tent_filter(Resample_Real t)   /* box (*) box, bilinear/triangle */
+#define TENT_FILTER_SUPPORT RR(1.0)
+static constexpr Resample_Real tent_filter(Resample_Real t)   /* box (*) box, bilinear/triangle */
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 1.0f)
-      return 1.0f - t;
+   if (t < RR(1.0))
+      return RR(1.0) - t;
    else
-      return 0.0f;
+      return RR(0.0);
 }
 
-#define BELL_SUPPORT (1.5f)
-static Resample_Real bell_filter(Resample_Real t)    /* box (*) box (*) box */
+#define BELL_SUPPORT RR(1.5)
+static constexpr Resample_Real bell_filter(Resample_Real t)    /* box (*) box (*) box */
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < .5f)
-      return (.75f - (t * t));
+   if (t < RR(.5))
+      return (RR(.75) - (t * t));
 
-   if (t < 1.5f)
+   if (t < RR(1.5))
    {
-      t = (t - 1.5f);
-      return (.5f * (t * t));
+      t = (t - RR(1.5));
+      return (RR(.5) * (t * t));
    }
 
-   return (0.0f);
+   return RR(0.0);
 }
 
-#define B_SPLINE_SUPPORT (2.0f)
-static Resample_Real B_spline_filter(Resample_Real t)  /* box (*) box (*) box (*) box */
+#define B_SPLINE_SUPPORT RR(2.0)
+static constexpr Resample_Real B_spline_filter(Resample_Real t)  /* box (*) box (*) box (*) box */
 {
-   Resample_Real tt;
-
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 1.0f)
+   if (t < RR(1.0))
    {
-      tt = t * t;
-      return ((.5f * tt * t) - tt + (2.0f / 3.0f));
+      Resample_Real tt = t * t;
+      return ((RR(.5) * tt * t) - tt + RR(2.0 / 3.0));
    }
-   else if (t < 2.0f)
+   else if (t < RR(2.0))
    {
-      t = 2.0f - t;
-      return ((1.0f / 6.0f) * (t * t * t));
+      t = RR(2.0) - t;
+      return (RR(1.0 / 6.0) * (t * t * t));
    }
 
-   return (0.0f);
+   return RR(0.0);
 }
 
 // Dodgson, N., "Quadratic Interpolation for Image Resampling"
-#define QUADRATIC_SUPPORT 1.5f
-static Resample_Real quadratic(Resample_Real t, const Resample_Real R)
+#define QUADRATIC_SUPPORT RR(1.5)
+static constexpr Resample_Real quadratic(Resample_Real t, const Resample_Real R)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
    if (t < QUADRATIC_SUPPORT)
    {
       Resample_Real tt = t * t;
-      if (t <= .5f)
-         return (-2.0f * R) * tt + .5f * (R + 1.0f);
+      if (t <= RR(.5))
+         return (RR(-2.0) * R) * tt + RR(.5) * (R + RR(1.0));
       else
-         return (R * tt) + (-2.0f * R - .5f) * t + (3.0f / 4.0f) * (R + 1.0f);
+         return (R * tt) + (RR(-2.0) * R - RR(.5)) * t + RR(3.0 / 4.0) * (R + RR(1.0));
    }
    else
-      return 0.0f;
+      return RR(0.0);
 }
 
-static Resample_Real quadratic_interp_filter(Resample_Real t)
+static constexpr Resample_Real quadratic_interp_filter(Resample_Real t)
 {
-   return quadratic(t, 1.0f);
+   return quadratic(t, RR(1.0));
 }
 
-static Resample_Real quadratic_approx_filter(Resample_Real t)
+static constexpr Resample_Real quadratic_approx_filter(Resample_Real t)
 {
-   return quadratic(t, .5f);
+   return quadratic(t, RR(.5));
 }
 
-static Resample_Real quadratic_mix_filter(Resample_Real t)
+static constexpr Resample_Real quadratic_mix_filter(Resample_Real t)
 {
-   return quadratic(t, .8f);
+   return quadratic(t, RR(.8));
 }
 
 // Mitchell, D. and A. Netravali, "Reconstruction Filters in Computer Graphics."
@@ -169,64 +169,62 @@ static Resample_Real quadratic_mix_filter(Resample_Real t)
 // (0, 0.5)		- Equivalent to the Catmull-Rom Spline
 // (0, C)		- The family of Cardinal Cubic Splines
 // (B, 0)		- Duff's tensioned B-Splines.
-static Resample_Real mitchell(Resample_Real t, const Resample_Real B, const Resample_Real C)
+static constexpr Resample_Real mitchell(Resample_Real t, const Resample_Real B, const Resample_Real C)
 {
-   Resample_Real tt;
+   Resample_Real tt = t * t;
 
-   tt = t * t;
-
-   if(t < 0.0f)
+   if(t < RR(0.0))
       t = -t;
 
-   if(t < 1.0f)
+   if(t < RR(1.0))
    {
-      t = (((12.0f - 9.0f * B - 6.0f * C) * (t * tt))
-         + ((-18.0f + 12.0f * B + 6.0f * C) * tt)
-         + (6.0f - 2.0f * B));
+      t = (((RR(12.0) - RR(9.0) * B - RR(6.0) * C) * (t * tt))
+         + ((RR(-18.0) + RR(12.0) * B + RR(6.0) * C) * tt)
+         + (RR(6.0) - RR(2.0) * B));
 
-      return (t / 6.0f);
+      return t / RR(6.0);
    }
-   else if (t < 2.0f)
+   else if (t < RR(2.0))
    {
-      t = (((-1.0f * B - 6.0f * C) * (t * tt))
-         + ((6.0f * B + 30.0f * C) * tt)
-         + ((-12.0f * B - 48.0f * C) * t)
-         + (8.0f * B + 24.0f * C));
+      t = (((RR(-1.0) * B - RR(6.0) * C) * (t * tt))
+         + ((RR(6.0) * B + RR(30.0) * C) * tt)
+         + ((RR(-12.0) * B - RR(48.0) * C) * t)
+         + (RR(8.0) * B + RR(24.0) * C));
 
-      return (t / 6.0f);
+      return t / RR(6.0);
    }
 
-   return (0.0f);
+   return RR(0.0);
 }
 
-#define MITCHELL_SUPPORT (2.0f)
-static Resample_Real mitchell_filter(Resample_Real t)
+#define MITCHELL_SUPPORT RR(2.0)
+constexpr static Resample_Real mitchell_filter(Resample_Real t)
 {
-   return mitchell(t, 1.0f / 3.0f, 1.0f / 3.0f);
+   return mitchell(t, RR(1.0 / 3.0), RR(1.0 / 3.0));
 }
 
-#define CATMULL_ROM_SUPPORT (2.0f)
-static Resample_Real catmull_rom_filter(Resample_Real t)
+#define CATMULL_ROM_SUPPORT RR(2.0)
+constexpr static Resample_Real catmull_rom_filter(Resample_Real t)
 {
-   return mitchell(t, 0.0f, .5f);
+   return mitchell(t, RR(0.0), RR(.5));
 }
 
-static double sinc(double x)
+constexpr static Resample_Real sinc(Resample_Real x)
 {
-   x = (x * M_PI);
+   x = (x * RR(M_PI));
 
-   if ((x < 0.01f) && (x > -0.01f))
-      return 1.0f + x*x*(-1.0f/6.0f + x*x*1.0f/120.0f);
+   if ((x < RR(0.01)) && (x > RR(-0.01)))
+      return RR(1.0) + x*x*(RR(-1.0/6.0) + x*x*RR(1.0/120.0));
 
-   return sin(x) / x;
+   return std::sin(x) / x;
 }
 
-static Resample_Real clean(double t)
+static Resample_Real clean(Resample_Real t)
 {
-   const Resample_Real EPSILON = .0000125f;
-   if (fabs(t) < EPSILON)
-      return 0.0f;
-   return (Resample_Real)t;
+   constexpr Resample_Real EPSILON = RR(.0000125);
+   if (std::fabs(t) < EPSILON)
+      return RR(0.0);
+   return t;
 }
 
 //static double blackman_window(double x)
@@ -234,95 +232,93 @@ static Resample_Real clean(double t)
 //	return .42f + .50f * cos(M_PI*x) + .08f * cos(2.0f*M_PI*x);
 //}
 
-static double blackman_exact_window(double x)
+static Resample_Real blackman_exact_window(Resample_Real x)
 {
-   return 0.42659071f + 0.49656062f * cos(M_PI*x) + 0.07684867f * cos(2.0f*M_PI*x);
+   return RR(0.42659071) + RR(0.49656062) * std::cos(RR(M_PI)*x) + RR(0.07684867) * std::cos(RR(2.0 * M_PI)*x);
 }
 
-#define BLACKMAN_SUPPORT (3.0f)
+#define BLACKMAN_SUPPORT RR(3.0)
 static Resample_Real blackman_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 3.0f)
+   if (t < RR(3.0))
       //return clean(sinc(t) * blackman_window(t / 3.0f));
-      return clean(sinc(t) * blackman_exact_window(t / 3.0f));
+      return clean(sinc(t) * blackman_exact_window(t / RR(3.0)));
    else
-      return (0.0f);
+      return RR(0.0);
 }
 
-#define GAUSSIAN_SUPPORT (1.25f)
+#define GAUSSIAN_SUPPORT RR(1.25)
 static Resample_Real gaussian_filter(Resample_Real t) // with blackman window
 {
    if (t < 0)
       t = -t;
    if (t < GAUSSIAN_SUPPORT)
-      return clean(exp(-2.0f * t * t) * sqrt(2.0f / M_PI) * blackman_exact_window(t / GAUSSIAN_SUPPORT));
+      return clean(std::exp(RR(-2.0) * t * t) * std::sqrt(RR(2.0 / M_PI)) * blackman_exact_window(t / GAUSSIAN_SUPPORT));
    else
-      return 0.0f;
+      return RR(0.0);
 }
 
 // Windowed sinc -- see "Jimm Blinn's Corner: Dirty Pixels" pg. 26.
-#define LANCZOS3_SUPPORT (3.0f)
+#define LANCZOS3_SUPPORT RR(3.0)
 static Resample_Real lanczos3_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 3.0f)
-      return clean(sinc(t) * sinc(t / 3.0f));
+   if (t < RR(3.0))
+      return clean(sinc(t) * sinc(t / RR(3.0)));
    else
-      return (0.0f);
+      return RR(0.0);
 }
 
-#define LANCZOS4_SUPPORT (4.0f)
+#define LANCZOS4_SUPPORT RR(4.0)
 static Resample_Real lanczos4_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 4.0f)
-      return clean(sinc(t) * sinc(t / 4.0f));
+   if (t < RR(4.0))
+      return clean(sinc(t) * sinc(t / RR(4.0)));
    else
-      return (0.0f);
+      return RR(0.0);
 }
 
-#define LANCZOS6_SUPPORT (6.0f)
+#define LANCZOS6_SUPPORT RR(6.0)
 static Resample_Real lanczos6_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 6.0f)
-      return clean(sinc(t) * sinc(t / 6.0f));
+   if (t < RR(6.0))
+      return clean(sinc(t) * sinc(t / RR(6.0)));
    else
-      return (0.0f);
+      return RR(0.0);
 }
 
-#define LANCZOS12_SUPPORT (12.0f)
+#define LANCZOS12_SUPPORT RR(12.0)
 static Resample_Real lanczos12_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
-   if (t < 12.0f)
-      return clean(sinc(t) * sinc(t / 12.0f));
+   if (t < RR(12.0))
+      return clean(sinc(t) * sinc(t / RR(12.0)));
    else
-      return (0.0f);
+      return RR(0.0);
 }
 
-static double bessel0(double x)
+static constexpr Resample_Real bessel0(Resample_Real x)
 {
-   const double EPSILON_RATIO = 1E-16;
-   double xh, sum, pow, ds;
-   int k;
+   constexpr Resample_Real EPSILON_RATIO = RR(1E-16);
 
-   xh = 0.5 * x;
-   sum = 1.0;
-   pow = 1.0;
-   k = 0;
-   ds = 1.0;
+   Resample_Real xh = RR(0.5) * x;
+   Resample_Real sum = RR(1.0);
+   Resample_Real pow = RR(1.0);
+   int k = 0;
+   Resample_Real ds = RR(1.0);
    while (ds > sum * EPSILON_RATIO) // FIXME: Shouldn't this stop after X iterations for max. safety?
    {
       ++k;
@@ -334,29 +330,29 @@ static double bessel0(double x)
    return sum;
 }
 
-static const Resample_Real KAISER_ALPHA = 4.0;
-static double kaiser(double alpha, double half_width, double x)
+//static const Resample_Real KAISER_ALPHA = 4.0;
+static Resample_Real kaiser(Resample_Real alpha, Resample_Real half_width, Resample_Real x)
 {
-   const double ratio = (x / half_width);
-   return bessel0(alpha * sqrt(1 - ratio * ratio)) / bessel0(alpha);
+   const Resample_Real ratio = (x / half_width);
+   return bessel0(alpha * std::sqrt(Resample_Real(1) - ratio * ratio)) / bessel0(alpha);
 }
 
-#define KAISER_SUPPORT 3
+#define KAISER_SUPPORT RR(3)
 static Resample_Real kaiser_filter(Resample_Real t)
 {
-   if (t < 0.0f)
+   if (t < RR(0.0))
       t = -t;
 
    if (t < KAISER_SUPPORT)
    {
       // db atten
-      const Resample_Real att = 40.0f;
-      const Resample_Real alpha = (Resample_Real)(exp(log((double)0.58417 * (att - 20.96)) * 0.4) + 0.07886 * (att - 20.96));
+      const Resample_Real att = RR(40.0);
+      const Resample_Real alpha = (Resample_Real)(exp(log(RR(0.58417) * (att - RR(20.96))) * RR(0.4)) + RR(0.07886) * (att - RR(20.96)));
       //const Resample_Real alpha = KAISER_ALPHA;
-      return (Resample_Real)clean(sinc(t) * kaiser(alpha, KAISER_SUPPORT, t));
+      return clean(sinc(t) * kaiser(alpha, KAISER_SUPPORT, t));
    }
 
-   return 0.0f;
+   return RR(0.0);
 }
 
 // filters[] is a list of all the available filter functions.
@@ -462,12 +458,12 @@ Resampler::Contrib_List* Resampler::make_clist(
       return (NULL);
    }
 
-   const Resample_Real oo_filter_scale = 1.0f / filter_scale;
+   const Resample_Real oo_filter_scale = RR(1.0) / filter_scale;
 
-   const Resample_Real NUDGE = 0.5f;
+   constexpr Resample_Real NUDGE = RR(0.5);
    xscale = dst_x / (Resample_Real)src_x;
 
-   if (xscale < 1.0f)
+   if (xscale < RR(1.0))
    {
       int total; (void)total;
 
@@ -487,8 +483,8 @@ Resampler::Contrib_List* Resampler::make_clist(
          center -= NUDGE;
          center += src_ofs;
 
-         left   = cast_to_int((Resample_Real)floor(center - half_width));
-         right  = cast_to_int((Resample_Real)ceil(center + half_width));
+         left   = cast_to_int(std::floor(center - half_width));
+         right  = cast_to_int(std::ceil(center + half_width));
 
          Pcontrib_bounds[i].center = center;
          Pcontrib_bounds[i].left		= left;
@@ -516,7 +512,7 @@ Resampler::Contrib_List* Resampler::make_clist(
       for (i = 0; i < dst_x; i++)
       {
          int max_k = -1;
-         Resample_Real max_w = -1e+20f;
+         Resample_Real max_w = RR(-1e+20);
 
          center = Pcontrib_bounds[i].center;
          left   = Pcontrib_bounds[i].left;
@@ -531,7 +527,7 @@ Resampler::Contrib_List* Resampler::make_clist(
 
          for (j = left; j <= right; j++)
             total_weight += (*Pfilter)((center - (Resample_Real)j) * xscale * oo_filter_scale);
-         const Resample_Real norm = static_cast<Resample_Real>(1.0f / total_weight);
+         const Resample_Real norm = static_cast<Resample_Real>(RR(1.0) / total_weight);
 
          total_weight = 0;
 
@@ -542,7 +538,7 @@ Resampler::Contrib_List* Resampler::make_clist(
          for (j = left; j <= right; j++)
          {
             weight = (*Pfilter)((center - (Resample_Real)j) * xscale * oo_filter_scale) * norm;
-            if (weight == 0.0f)
+            if (weight == RR(0.0))
                continue;
 
             n = reflect(j, src_x, boundary_op);
@@ -584,8 +580,8 @@ Resampler::Contrib_List* Resampler::make_clist(
             return NULL;
          }
 
-         if (total_weight != 1.0f)
-            Pcontrib[i].p[max_k].weight += 1.0f - total_weight;
+         if (total_weight != RR(1.0))
+            Pcontrib[i].p[max_k].weight += RR(1.0) - total_weight;
       }
    }
    else
@@ -606,8 +602,8 @@ Resampler::Contrib_List* Resampler::make_clist(
          center -= NUDGE;
          center += src_ofs;
 
-         left   = cast_to_int((Resample_Real)floor(center - half_width));
-         right  = cast_to_int((Resample_Real)ceil(center + half_width));
+         left   = cast_to_int(std::floor(center - half_width));
+         right  = cast_to_int(std::ceil(center + half_width));
 
          Pcontrib_bounds[i].center = center;
          Pcontrib_bounds[i].left		= left;
@@ -635,7 +631,7 @@ Resampler::Contrib_List* Resampler::make_clist(
       for (i = 0; i < dst_x; i++)
       {
          int max_k = -1;
-         Resample_Real max_w = -1e+20f;
+         Resample_Real max_w = RR(-1e+20);
 
          center = Pcontrib_bounds[i].center;
          left   = Pcontrib_bounds[i].left;
@@ -650,7 +646,7 @@ Resampler::Contrib_List* Resampler::make_clist(
          for (j = left; j <= right; j++)
             total_weight += (*Pfilter)((center - (Resample_Real)j) * oo_filter_scale);
 
-         const Resample_Real norm = static_cast<Resample_Real>(1.0f / total_weight);
+         const Resample_Real norm = static_cast<Resample_Real>(RR(1.0) / total_weight);
 
          total_weight = 0;
 
@@ -661,7 +657,7 @@ Resampler::Contrib_List* Resampler::make_clist(
          for (j = left; j <= right; j++)
          {
             weight = (*Pfilter)((center - (Resample_Real)j) * oo_filter_scale) * norm;
-            if (weight == 0.0f)
+            if (weight == RR(0.0))
                continue;
 
             n = reflect(j, src_x, boundary_op);
@@ -704,8 +700,8 @@ Resampler::Contrib_List* Resampler::make_clist(
             return NULL;
          }
 
-         if (total_weight != 1.0f)
-            Pcontrib[i].p[max_k].weight += 1.0f - total_weight;
+         if (total_weight != RR(1.0))
+            Pcontrib[i].p[max_k].weight += RR(1.0) - total_weight;
       }
    }
 
